@@ -6,14 +6,15 @@ import math
 import random
 import decimal
 import copy
+# from IPython.display import clear_output
 solvers.options['show_progress'] = False
 
 class Agent:
-    def __init__(self, agent_id, i_state, g_state, vg, wg, p_horizon, u_horizon=3, curve=False):
+    def __init__(self, agent_id, i_state, g_state, vg, wg, p_horizon, u_horizon):
         # agent state
-        self.id = agent_id # id of the agent
-        self.radius = 1.0
-        self.obst_radius = 1.0
+        self.agent_id = agent_id # id of the agent
+        self.agent_radius = 0.99
+        self.obst_radius = 0.99
         self.i_state = np.array(i_state) # start state
         self.g_state = np.array(g_state) # goal state
         self.c_state = i_state # current state
@@ -24,7 +25,7 @@ class Agent:
         self.p_horizon = p_horizon # planning horizon
         self.u_horizon = u_horizon # update horizon
         # initial guesses
-        self.vg = matrix(vg) # initial velocity
+        self.vg = matrix(vg)  # initial velocity
         self.wg = matrix(wg) # initial angular velocity
         # last known values
         self.vl = 0 # last known velocity of the agent
@@ -32,26 +33,16 @@ class Agent:
         # current values
         self.v = self.vl # current velocity
         self.w = self.wl # current angular velocity
-        self.v_ub = 30
-        self.v_lb = 0
-        self.w_ub = 0.5
-        self.w_lb = -0.5
-        self.amin = -5
-        self.amax = 5
-        self.reaction_time = 0.3
         # dt
-        self.dt = 0.05
+        self.dt = 0.1
         # lists to store vel and angular vel for debugging
         self.x_traj = []
         self.y_traj = []
-        self.v_list = []
-        self.w_list = []
+        self.v_list = [self.vl]
+        self.w_list = [self.wl]
         self.time_list = [] 
         self.avg_time = 0
-        self.brake = False
-        self.curve = curve
-
-
+        
     def get_P_q_x(self):
         
         P_x_ = np.ones((1,2*self.p_horizon))
@@ -181,7 +172,7 @@ class Agent:
         return P_cont, q_cont
     
     def obst_constraint(self,ox, oy, i):
-        #input("Press enter to continue:")
+        
         left_row = np.zeros((1,2*self.p_horizon))
         right_row = np.zeros((1,1))
         wg = np.array(self.wg).reshape((1,-1))
@@ -192,9 +183,9 @@ class Agent:
         ## w1g, w1g+w2g, w1g+w2g+w3g
         w_sum = np.cumsum(wg[0,:i])
         theta = self.c_state[2]+w_sum*self.dt
-        
+                
         ## constant part
-        s_r = (self.radius + self.obst_radius)**2 + 1.5
+        s_r = (self.agent_radius + self.obst_radius)**2 + 1
         
         ## for x part
         
@@ -235,78 +226,6 @@ class Agent:
         right_row[0,0] = right_row[0,0] - const_y
         return (-left_row, -right_row)
     
-    def r_slane_constraint(self, i):
-        left_row = np.zeros((1,2*self.p_horizon))
-        right_row = np.zeros((1,1))
-        
-        wg = np.array(self.wg).reshape((1,-1))
-        vg = np.array(self.vg).reshape((1,-1))
-
-        ## w1g, w1g+w2g, w1g+w2g+w3g
-        w_sum = np.cumsum(wg[0,:i])
-        theta = self.c_state[2]+w_sum*self.dt
-                
-        ## constant part
-        s_r = 4.5 - (self.radius)
-        
-        ## for x part
-        
-        x_0 = self.c_state[0] 
-        cos_vec = vg[0,:i]*np.cos(theta)*self.dt
-        kx = x_0 + np.sum(cos_vec)
-        d_vx = np.cos(theta)*self.dt
-        
-        vg_theta = -vg[0,:i]*np.sin(theta)*self.dt**2
-        
-        vg_sum = np.cumsum(vg_theta[::-1]) 
-        d_wx = vg_sum[::-1]
-        
-        const_d_vx = -vg[0,:i]*d_vx
-        const_d_wx = -wg[0,:i]*d_wx
-        
-        const_x = kx + np.sum(const_d_vx) + np.sum(const_d_wx)
-        left_row[0,:i] = d_vx
-        left_row[0,self.p_horizon:self.p_horizon+i] = d_wx
-        right_row[0,0] = s_r - const_x 
-        
-        return (left_row, right_row)
-    
-    def l_slane_constraint(self, i):
-        left_row = np.zeros((1,2*self.p_horizon))
-        right_row = np.zeros((1,1))
-        
-        wg = np.array(self.wg).reshape((1,-1))
-        vg = np.array(self.vg).reshape((1,-1))
-
-        ## w1g, w1g+w2g, w1g+w2g+w3g
-        w_sum = np.cumsum(wg[0,:i])
-        theta = self.c_state[2]+w_sum*self.dt
-                
-        ## constant part
-        s_r = -4.5 + (self.radius)
-        
-        ## for x part
-        
-        x_0 = self.c_state[0] 
-        cos_vec = vg[0,:i]*np.cos(theta)*self.dt
-        kx = x_0 + np.sum(cos_vec)
-        d_vx = np.cos(theta)*self.dt
-        
-        vg_theta = -vg[0,:i]*np.sin(theta)*self.dt**2
-        
-        vg_sum = np.cumsum(vg_theta[::-1]) 
-        d_wx = vg_sum[::-1]
-        
-        const_d_vx = -vg[0,:i]*d_vx
-        const_d_wx = -wg[0,:i]*d_wx
-        
-        const_x = kx + np.sum(const_d_vx) + np.sum(const_d_wx)
-        left_row[0,:i] = d_vx
-        left_row[0,self.p_horizon:self.p_horizon+i] = d_wx
-        right_row[0,0] = s_r - const_x 
-        
-        return (-left_row, -right_row)
-        
     def r_clane_constraint(self, i):
         
         left_row = np.zeros((1,2*self.p_horizon))
@@ -319,7 +238,7 @@ class Agent:
         theta = self.c_state[2]+w_sum*self.dt
                 
         ## constant part
-        s_r = (100-self.radius)**2
+        s_r = (100-0.99)**2
         
         ## for x part
         
@@ -374,7 +293,7 @@ class Agent:
         theta = self.c_state[2]+w_sum*self.dt
                 
         ## constant part
-        s_r = (91+self.radius)**2
+        s_r = (96.3+0.99)**2
         
         ## for x part
         
@@ -416,12 +335,16 @@ class Agent:
         right_row[0,0] = right_row[0,0] - const_y
         
         return (-left_row, -right_row)
+        
     
     def pred_controls(self):
         # define the cost function here and optimize the controls to minimize it
+
+        w1 = 1
+
         v_cost = 99999
         w_cost = 99999
-        threshold = 5.5 
+        threshold = 1
         count = 100
         strt_time = time.time()
         while( (v_cost > threshold) or (w_cost > threshold)):
@@ -443,13 +366,13 @@ class Agent:
             
             v_bound = 10
             w_bound = 0.1
-            amin = self.amin #-2 # min acceleration
-            amax = self.amax #2 # max acceleration
+            amin = -2 # min acceleration
+            amax = 1 # max acceleration
             alphamax = 0.1 # max angular acceleration
-            alphamin = -0.1 # min angulasr acceleration
+            alphamin = -0.1 # min angular acceleration
             
-            v_ub = self.v_ub*np.ones((self.p_horizon,1))
-            v_lb = self.v_lb*np.ones((self.p_horizon,1))
+            v_ub = 10*np.ones((self.p_horizon,1))
+            v_lb = 0*np.ones((self.p_horizon,1))
             w_ub = 0.5*np.ones((self.p_horizon,1))
             w_lb = -0.5*np.ones((self.p_horizon,1))
             a_ubound = amax * self.dt * np.ones((self.p_horizon-1,1))
@@ -472,32 +395,24 @@ class Agent:
                                       av_max, av_min, aw_max, aw_min ), \
                                       axis=0)
             
-            # Lane constraints
-            if self.curve == False :
-                for lter in range(self.p_horizon):
-                   left, right = self.r_slane_constraint(lter+1)
-                   g_mat = np.concatenate((g_mat, left), axis=0)
-                   h_mat = np.concatenate((h_mat, right), axis=0)
-                   left, right = self.l_slane_constraint(lter+1)
-                   g_mat = np.concatenate((g_mat, left), axis=0)
-                   h_mat = np.concatenate((h_mat, right), axis=0)
-            else:
-                for lter in range(self.p_horizon):
-                    left, right = self.r_clane_constraint(lter+1)
-                    g_mat = np.concatenate((g_mat, left), axis=0)
-                    h_mat = np.concatenate((h_mat, right), axis=0)
-                    left, right = self.l_clane_constraint(lter+1)
-                    g_mat = np.concatenate((g_mat, left), axis=0)
-                    h_mat = np.concatenate((h_mat, right), axis=0)
-            # Obstacle avoidance constraints
-
+            for lter in range(self.p_horizon):
+                left, right = self.r_lane_constraint(lter+1)
+                g_mat = np.concatenate((g_mat, left), axis=0)
+                h_mat = np.concatenate((h_mat, right), axis=0)
+                left, right = self.l_lane_constraint(lter+1)
+                g_mat = np.concatenate((g_mat, left), axis=0)
+                h_mat = np.concatenate((h_mat, right), axis=0)
+                
+            
             if(self.avoid_obs):
                 self.n_obst = len(self.obstacles)
                 for i_obs in range(self.n_obst):
-                    obs = self.obstacles[i_obs] 
                     dist = np.sqrt((self.c_state[0] - self.obstacles[i_obs].c_state[0])**2 + (self.c_state[1] - self.obstacles[i_obs].c_state[1])**2)
-
-                    if(dist<=20):
+#                     print(dist)
+#                     time.sleep(1)
+                    if(dist<=50):
+#                         print("check")
+#                         time.sleep(10)
                         o_state = copy.deepcopy(self.obstacles[i_obs].c_state)
                         o_wg = copy.deepcopy(np.array(self.obstacles[i_obs].wg).reshape((1,-1)))
                         o_vg = copy.deepcopy(np.array(self.obstacles[i_obs].vg).reshape((1,-1)))
@@ -529,9 +444,9 @@ class Agent:
             self.vg = sol['x'][0:self.p_horizon]
             self.wg = sol['x'][self.p_horizon:]   
             count = count - 1
-        
         end_time = time.time()
         self.time_list.append(end_time-strt_time)
+#         return sol
        
     def non_hol_update(self):
         self.c_state[2] = self.c_state[2] + self.w*self.dt
@@ -540,15 +455,9 @@ class Agent:
         
     def draw_circle(self, x, y):
         th = np.arange(0,2*np.pi,0.01)
-        xunit = self.radius * np.cos(th) + x
-        yunit = self.radius * np.sin(th) + y
+        xunit = self.agent_radius * np.cos(th) + x
+        yunit = self.agent_radius * np.sin(th) + y
         return xunit, yunit  
-
-    def draw_dmin(self, x, y):
-        th = np.arange(0,2*np.pi,0.01)
-        xunit = self.d_min * np.cos(th) + x
-        yunit = self.d_min * np.sin(th) + y
-        return xunit, yunit
     
     def get_traj(self,k):
         state = copy.deepcopy(self.c_state)
@@ -558,6 +467,100 @@ class Agent:
             state[1] = state[1] + self.vg[i]*np.sin(state[2])*self.dt
             self.x_traj.append(state[0])
             self.y_traj.append(state[1])
-    
         
 
+def get_dist(a_state, o_state):
+    d = np.sqrt((o_state[0] - a_state[0])**2 + (o_state[1] - a_state[1])**2)
+    return d
+    
+        
+def main():
+    p_horizon = 40
+    u_horizon = 10
+
+    ### initialize vg and wg
+    vg = 0*np.ones((p_horizon,1))
+    wg = 0*np.ones((p_horizon,1))
+
+    x_lane = np.arange(-105,105,0.1)
+    y_r_lane = np.sqrt((100)**2 - x_lane**2)
+    y_l_lane = np.sqrt((96.3)**2 - x_lane**2)
+
+    agent1 = Agent(1, [99,0,np.deg2rad(91)],[-99,0,np.deg2rad(300)], vg, wg, p_horizon, u_horizon)
+    agent1.obstacles = []
+    agent1.avoid_obs = False
+
+    th = 0.5
+    timeout = 50
+    rec_video =  False
+    if(rec_video):
+        plt_sv_dir = "../../2_pipeline/tmp/"
+        p = 0
+
+    count = 0
+    update_y = 0
+    y_l_lim = agent1.c_state[1]-30
+    y_u_lim = agent1.c_state[1]+30
+    x_l_lim = agent1.c_state[1]-30
+    x_u_lim = agent1.c_state[1]+30
+    while( ( (np.linalg.norm(agent1.c_state-agent1.g_state)>th) ) and timeout > 0):
+        agent1.pred_controls()
+        for i in range(u_horizon):
+            if(np.linalg.norm(agent1.c_state-agent1.g_state)>th):
+                agent1.v = agent1.vg[i]
+                agent1.w = agent1.wg[i]
+                agent1.v_list.append(agent1.v)
+                agent1.x_traj = []
+                agent1.y_traj = []
+                agent1.get_traj(i)
+                agent1.non_hol_update()
+
+                
+            xa,ya = agent1.draw_circle(agent1.c_state[0], agent1.c_state[1])
+
+            plt.plot(xa,ya,'b',linewidth=1)
+            plt.annotate('1', xy=(agent1.c_state[0], agent1.c_state[1]+2.5))
+           
+            plt.annotate('Velocity:'+str(round(agent1.v,2)), xy=(agent1.c_state[0]+5,agent1.c_state[1]+5))
+
+            plt.scatter(agent1.g_state[0],agent1.g_state[1],marker='x', color='r')
+            plt.scatter(agent1.x_traj, agent1.y_traj,marker='.', color='cyan', s=1)
+            plt.plot([agent1.c_state[0],agent1.g_state[0]],[agent1.c_state[1],agent1.g_state[1]], linestyle='dotted', c='k')
+            
+            plt.plot(x_lane,y_r_lane,'r')
+            plt.plot(x_lane,y_l_lane,'r')
+
+            plt.title("Agent 1 has Obstacle avoidance | Update interval: "+str(u_horizon))  
+            plt.xlim([x_l_lim,x_u_lim])
+            plt.ylim([y_l_lim,y_u_lim])
+            
+            if(rec_video):
+                plt.savefig(plt_sv_dir+str(p)+".png",dpi=500, bbox_inches='tight')
+                p = p+1
+                plt.clf()
+            else:
+                plt.pause(1e-10)
+                plt.clf()
+            timeout = timeout - agent1.dt
+
+        update_y = update_y + 1
+        if(update_y>= 2):
+            update_y = 0
+            y_l_lim = agent1.c_state[1] - 30
+            y_u_lim = agent1.c_state[1] + 30
+            x_l_lim = agent1.c_state[0] - 30
+            x_u_lim = agent1.c_state[0] + 30
+        
+#     agent1.g_state[1] = agent1.c_state[1] + 55    
+        agent1.vl = agent1.v
+        agent1.wl = agent1.w
+       
+    agent1.avg_time = sum(agent1.time_list[1:])/len(agent1.time_list[1:])
+    print("average time taken for each optimization step: {} secs".format(agent1.avg_time))
+
+    if(timeout <= 0):
+        print("Stopped because of timeout.")
+
+
+if __name__ == "__main__":
+    main()
